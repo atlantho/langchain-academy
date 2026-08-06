@@ -1,9 +1,11 @@
 import operator
+import requests
+
 from pydantic import BaseModel, Field
 from typing import Annotated, List
 from typing_extensions import TypedDict
 
-from langchain_community.document_loaders import WikipediaLoader
+from langchain_core.documents import Document
 from langchain_tavily import TavilySearch  # updated 1.0
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, get_buffer_string
 from langchain_openai import ChatOpenAI
@@ -180,26 +182,72 @@ def search_web(state: InterviewState):
     return {"context": [formatted_search_docs]} 
 
 def search_wikipedia(state: InterviewState):
-    
-    """ Retrieve docs from wikipedia """
+    """Retrieve documents directly from the Wikipedia API."""
 
-    # Search query
+    # Generate search query
     structured_llm = llm.with_structured_output(SearchQuery)
-    search_query = structured_llm.invoke([search_instructions]+state['messages'])
-    
-    # Search
-    search_docs = WikipediaLoader(query=search_query.search_query, 
-                                  load_max_docs=2).load()
 
-     # Format
+    search_query = structured_llm.invoke(
+        [search_instructions] + state["messages"]
+    )
+
+    # Query the official MediaWiki API directly.
+    # This avoids the outdated Python package "wikipedia".
+    response = requests.get(
+        "https://en.wikipedia.org/w/api.php",
+        params={
+            "action": "query",
+            "generator": "search",
+            "gsrsearch": search_query.search_query,
+            "gsrlimit": 2,
+            "prop": "extracts|info",
+            "explaintext": 1,
+            "inprop": "url",
+            "redirects": 1,
+            "format": "json",
+            "formatversion": 2,
+        },
+        headers={
+            "User-Agent": (
+                "Thomas-LangChain-Academy/1.0 "
+                "(educational LangGraph project)"
+            ),
+            "Accept": "application/json",
+        },
+        timeout=30,
+    )
+
+    response.raise_for_status()
+    data = response.json()
+
+    pages = data.get("query", {}).get("pages", [])
+
+    search_docs = [
+        Document(
+            page_content=page.get("extract", ""),
+            metadata={
+                "title": page.get("title", ""),
+                "source": page.get("fullurl", ""),
+                "page": page.get("pageid", ""),
+            },
+        )
+        for page in pages
+        if page.get("extract")
+    ]
+
     formatted_search_docs = "\n\n---\n\n".join(
         [
-            f'<Document source="{doc.metadata["source"]}" page="{doc.metadata.get("page", "")}"/>\n{doc.page_content}\n</Document>'
+            (
+                f'<Document source="{doc.metadata["source"]}" '
+                f'page="{doc.metadata.get("page", "")}">\n'
+                f"{doc.page_content}\n"
+                "</Document>"
+            )
             for doc in search_docs
         ]
     )
 
-    return {"context": [formatted_search_docs]} 
+    return {"context": [formatted_search_docs]}
 
 # Generate expert answer
 answer_instructions = """You are an expert being interviewed by an analyst.
