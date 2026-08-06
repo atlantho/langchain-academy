@@ -80,7 +80,7 @@ class EntryGraphState(TypedDict):
     cleaned_logs: List[Log]
     fa_summary: str # This will only be generated in the FA sub-graph
     report: str # This will only be generated in the QS sub-graph
-    processed_logs:  Annotated[List[int], add] # This will be generated in BOTH sub-graphs
+    processed_logs:  Annotated[List[str], add] # This will be generated in BOTH sub-graphs
 
 def clean_logs(state):
     # Get logs
