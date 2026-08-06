@@ -1,4 +1,6 @@
+import importlib
 import operator
+
 from typing import Annotated
 from typing_extensions import TypedDict
 
@@ -6,11 +8,12 @@ from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from langchain_community.document_loaders import WikipediaLoader
-from langchain_tavily import TavilySearch  # updated 1.0
+from langchain_tavily import TavilySearch
 
 from langchain_openai import ChatOpenAI
-
 from langgraph.graph import StateGraph, START, END
+
+wikipedia_backend = importlib.import_module("wikipedia.wikipedia")
 
 llm = ChatOpenAI(model="gpt-4o", temperature=0) 
 
@@ -39,22 +42,36 @@ def search_web(state):
     return {"context": [formatted_search_docs]} 
 
 def search_wikipedia(state):
-    
-    """ Retrieve docs from wikipedia """
+    """Retrieve docs from Wikipedia."""
 
-    # Search
-    search_docs = WikipediaLoader(query=state['question'], 
-                                  load_max_docs=2).load()
+    loader = WikipediaLoader(
+        query=state["question"],
+        load_max_docs=2,
+    )
 
-     # Format
+    # WikipediaLoader setzt intern teilweise noch eine HTTP-Adresse.
+    # Deshalb nach der Loader-Erstellung explizit HTTPS setzen.
+    wikipedia_backend.API_URL = "https://en.wikipedia.org/w/api.php"
+    wikipedia_backend.USER_AGENT = (
+        "Thomas-LangChain-Academy/1.0 "
+        "(local educational LangGraph application)"
+    )
+
+    search_docs = loader.load()
+
     formatted_search_docs = "\n\n---\n\n".join(
         [
-            f'<Document source="{doc.metadata["source"]}" page="{doc.metadata.get("page", "")}"/>\n{doc.page_content}\n</Document>'
+            (
+                f'<Document source="{doc.metadata["source"]}" '
+                f'page="{doc.metadata.get("page", "")}">\n'
+                f"{doc.page_content}\n"
+                "</Document>"
+            )
             for doc in search_docs
         ]
     )
 
-    return {"context": [formatted_search_docs]} 
+    return {"context": [formatted_search_docs]}
 
 def generate_answer(state):
     
